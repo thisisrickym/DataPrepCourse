@@ -1,0 +1,250 @@
+---
+title: "MATH2349 Semester 2, 2018"
+author: Richard Mailhot s3699115
+subtitle: Assignment 2
+output:
+  html_notebook: default
+---
+
+
+
+## Setup
+
+
+```{r, echo = TRUE, message=FALSE}
+
+
+library(readr)
+library(tidyr)
+library(dplyr)
+library(Hmisc)
+library(outliers)
+
+```
+
+
+## Read WHO Data
+
+
+
+```{r}
+
+WHOdata <- read_csv("WHO.csv")
+
+WHOdata
+
+```
+
+
+
+
+## Tidy Task 1:
+
+In this step, I use the gather function to create a new column "code" that contains the variables that were originally in the names of columns 5-60. The values that were in each of these columns are now in the value column.
+
+```{r, echo=TRUE}
+
+
+WHOdata <- WHOdata %>% gather(code, value, 5:60)
+
+WHOdata
+```
+
+
+
+## Tidy Task 2:
+
+Next we split the code column, as it contains more than one variable. First I use the separate function with a separator of "_", to split it into three different columns. Two of these columns now only contain one variable ("new" and "var"), however the third column still contains two. I use separate again with to split this column after the first character to get the sex and age column.
+
+
+```{r}
+
+WHOdata <- WHOdata %>% separate(code, c("new", "var", "sa"), sep = "_") %>% separate(sa, c("sex", "age"), sep = 1)
+
+WHOdata
+
+```
+
+
+## Tidy Task 3:
+
+Next we want to give a separate column for each variable in the var column. We will put the corresponding integer in teh "value" column into these new columns. We do this using the spread function.
+
+```{r}
+
+WHOdata <- WHOdata %>% spread(var, value)
+
+WHOdata
+
+```
+
+
+## Tidy Task 4: 
+
+Next we want to change two of our chategorical variables to factors. We use the mutate function for this, changing the labels for the age factor and ordering it. The sex factor is not ordered.
+
+```{r}
+
+WHOdata <- WHOdata %>% mutate(age = factor(age, levels = c("014", "1524", "2534", "3544", "4554", "5564", "65"), 
+                                           labels = c("<15", "15-24", "25-34", "35-44", "45-54", "55-64", "65>="),
+                                           ordered = TRUE),
+                              sex = factor(sex, levels = c("m","f")))
+
+WHOdata
+
+```
+
+## Task 5: Filter & Select
+
+
+Next we drop the iso2 and new columns using the select function, and filter our data to three countries (Afghanistan, Australia and Albania) using the subset function.
+
+```{r}
+
+WHO_subset <- WHOdata %>% subset (country == "Afghanistan" | country == "Australia" | country == "Albania") %>% select(-iso2, -new) 
+
+WHO_subset
+
+```
+
+
+
+## Read Species and Surveys data sets
+
+
+
+```{r}
+
+species <- read_csv("species.csv")
+surveys <- read_csv("surveys.csv")
+
+species
+
+surveys
+
+```
+
+## Task 6: Join  
+
+Combine `surveys` and `species` data frames using the key variable `species_id`. **For this task, you need to add the species information (`genus`, `species`, `taxa`) to the `surveys` data**.  Rename the combined data frame as `surveys_combined`.
+First I use left join to combine the two data frames. I use left join because I want to keep all of the surveys data and add the corresponding entries of species(using species_id) to it. 
+
+```{r}
+
+surveys_combined <- surveys %>% left_join(species)
+
+```
+
+```{r}
+
+surveys_combined
+
+```
+
+
+
+## Task 7: Calculate 
+
+In this step I find the average weight and hindfoot length for albigula each month of the year. I do this by first grouping my data and then using the sumarize function.
+
+
+```{r}
+
+by_month <- group_by(surveys_combined, month, species = "albigula")
+summarise(by_month, Avg_weight = mean(weight, na.rm = TRUE), Avg_hindfoot_length = mean(hindfoot_length, na.rm =TRUE))
+
+```
+
+
+
+## Task 8: Missing Values
+
+For this step I create a new data frame that is the subset of surveys_combined for the year 1995.
+
+```{r}
+
+surveys_combined_year <- surveys_combined[surveys_combined$year == 1995, ]
+
+surveys_combined_year
+
+```
+
+
+I then used the summarise function to find the total number of NAs in the weight column for each species.
+
+```{r}
+
+by_species <- group_by(surveys_combined_year, species)
+
+summarise(by_species, tot_missing = sum(is.na(weight)))
+
+```
+
+
+Next I needed to replace each of the NAs with the mean of the weight for that species.  To do this I first created a data frame that contains the mean of each species called avg_weight. 
+```{r}
+
+avg_weight <- summarise(by_species, avg_weight = mean(weight, na.rm = TRUE))
+
+avg_weight
+
+```
+I then create a data frame that joins this information to the surveys_combined_year data frame and replace any NA in the weight column with the avg_weight entry.
+
+I then create the surveys_weight_imputed data frame by dropping the avg_weight column from this.
+```{r}
+
+surveys_weight <- surveys_combined_year %>% left_join(avg_weight)
+surveys_weight$weight[is.na(surveys_weight$weight)] <- surveys_weight$avg_weight[is.na(surveys_weight$weight)]
+surveys_weight_imputed <- surveys_weight %>% select(-avg_weight)
+
+surveys_weight_imputed
+
+```
+
+
+
+
+
+## Task 9: Inconsistencies or Special Values
+
+I now look at the weight column for other special values.
+```{r}
+which(is.nan(surveys_weight_imputed$weight))
+```
+
+```{r}
+which(is.infinite(surveys_weight_imputed$weight))
+
+```
+
+We find that there are still NANs in the weight column. Looking back at our data, we find that some species had no entries that weren't NA in the weight column. This made the mean of that species weight equal to NAN, and thus the NA was replaced with NAN.
+
+
+## Task 10: Outliers
+
+To inspect the hindfoot_length for outliers I used to methods. I checked the z-scores and a boxplot of the data.
+
+```{r}
+hindfoot_length <- na.omit(surveys_combined$hindfoot_length)
+z_scores <- hindfoot_length %>% scores(type = "z")
+z_scores[which(abs(z_scores) > 3)]
+```
+
+```{r}
+boxplot(surveys_combined$hindfoot_length)
+```
+
+Because the z-scores of the two outliers that do not show on the boxplot, are so close to 3, I chose to only consider what the boxplot showed as outliers. As there are only two outliers in over 30000 lines, I chose to delete these outliers.
+
+```{r}
+
+surveys_combined <- surveys_combined[-(which(surveys_combined$hindfoot_length > 60)),]
+
+boxplot(surveys_combined$hindfoot_length)
+
+surveys_combined
+```
+
+<br>
+<br>

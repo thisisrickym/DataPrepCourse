@@ -1,0 +1,170 @@
+---
+title: "MATH2349 Semester 2, 2018"
+author: "Richard Mailhot S3699115"
+subtitle: Assignment 3
+output:
+  html_notebook: default
+---
+
+
+## Required packages 
+
+
+```{r}
+library(readr)
+library(dplyr)
+library(outliers)
+```
+
+
+## Executive Summary 
+
+
+My data consists of three separate tables consisting of different NHL(National Hockey League) stats or information. I obtained this data from kaggle.com, with specific links given below. The game and game_stats tables only contain the teams that played using a key in the team info. I merged these so that I could have the actual team names in the data. When I merge all of these together I get over 30 columns, so I only selected the columns that I want to use in my final analysis.  I then create two additional numeric columns. Once I have my final data set in a tidy format, I check the data for erroneous entries. Next I check my numeric data for any outliers, before transforming my shots variable to normalize it.
+
+
+## Data 
+
+I use three separate data sets from kaggle.com.
+
+They are 
+team_info.csv from https://www.kaggle.com/martinellis/nhl-game-data#team_info.csv
+game.csv from https://www.kaggle.com/martinellis/nhl-game-data#game.csv
+game_teams_stats from https://www.kaggle.com/martinellis/nhl-game-data#game_teams_stats.csv
+
+team_info contains information about each team. I use this data to get the abbreviation variable into my dataset. This variable allows me to easily see what team teh observation is about, without using a key.
+
+
+games contains information about all games played from the 19th of January, 2013 to the 8th of June 2018 in the national hockey league. The variables I use from this data set are
+
+* game_id - a unique id for each game
+* season - which season is the game from
+* type - playoff or regular season
+* date_time - date of game played
+* venue - what arena the game was played in
+
+team_stats contains the team statistics from each of these games. I merge this with the games table, so that I have the date and type of game for each observation. The variables I use from this data set are
+
+* game_id
+* HoA - if the team was the home or away team
+* won - whether this team won
+* settled_in - if the game ended in regular time, overtime, or a shootout
+* goals - goals scored by this team in this game
+* shots - shots on goal
+* powerPlayOpportunities- number of times on the power play
+* powerPlayGoals- goals scored on the power play
+
+
+```{r}
+
+team_info <- read_csv("team_info.csv")
+head(team_info)
+games <- read_csv("game.csv")
+head(games)
+team_stats <- read.csv("game_teams_stats.csv")
+head(team_stats)
+
+team_stats_full <- team_stats %>% left_join(team_info, by = "team_id") %>% left_join(games, by = "game_id")
+head(team_stats_full)
+```
+
+## Understand 
+
+In this step i use the str() function to look at the types of data in each column of my data set. I notice that the date is imported as a character, so I change this to date format.
+
+```{r}
+str(team_stats_full)
+
+team_stats_full$date_time <- as.Date(team_stats_full$date_time, format = "%d/%m/%Y")
+class(team_stats_full$date_time)
+head(team_stats_full)
+```
+
+
+##	Tidy & Manipulate Data I 
+
+The full merged data is untidy. However the untidyness comes from variables I do not want in my final data set. For example the outcome variable tells us who won, and what part of the game it was settled in. I get rid of a lot of these columns when I select the columns I want for my final data set.
+
+
+```{r}
+ team_stats_full <- team_stats_full %>% select(c("game_id", "abbreviation", "HoA", "won", "settled_in", "head_coach", "goals", "shots", "powerPlayOpportunities", "powerPlayGoals", "season", "type", "date_time", "venue"))
+
+head(team_stats_full)
+```
+
+##	Tidy & Manipulate Data II 
+
+In this step I create two new variables. I create the powerPlayPercent variable, which tells us the percent of power plays that the team scored on, and the shooting percentage variable.
+
+
+```{r}
+team_stats_full <- team_stats_full %>% mutate(powerPlayPercent = 100*(powerPlayGoals/powerPlayOpportunities), shootingPercent = 100*(goals/shots))
+
+head(team_stats_full)
+
+```
+
+
+##	Scan I 
+
+In this step I scan the data for missing values. I find that the newly created variable powerPlayPercent has missing values. Upon looking into these missing values I find that these are created when a team had no power play opporunities in a game. This would create an erroneous calculation when creaeting the column above. I replace these NAs with 0s as that is representative of their power play percentage in these scenerios.
+
+```{r}
+colSums(is.na(team_stats_full))
+
+team_stats_full$powerPlayPercent[is.na(team_stats_full$powerPlayPercent)] <- 0
+
+```
+
+
+##	Scan II
+
+In this step I create a data frame containing only numeric entries of the full data set. I exclude game_id and season, as these are integer ids and not truly numeric values.
+
+I boxplot each of these to see if they contain outliers, and also get the z-scores for each and see which are not in between -3 and 3.
+
+```{r}
+
+nums <- unlist(lapply(team_stats_full, is.numeric))
+
+team_stats_numeric <- team_stats_full[ , nums] %>% select(-c("game_id", "season"))
+
+boxplot(as.matrix(team_stats_numeric))
+```
+
+```{r}
+goals_scores <- scores(team_stats_full$goals)
+shots_scores <- scores(team_stats_full$shots)
+PPPercent_scores <- scores(team_stats_full$powerPlayPercent)
+PPOpp_scores <- scores(team_stats_full$powerPlayOpportunities)
+PPGoal_scores <- scores(team_stats_full$powerPlayGoals)
+shootingPercent_scores <- scores(team_stats_full$shootingPercent)
+
+which(abs(goals_scores) > 3)
+which(abs(shots_scores) > 3)
+which(abs(PPPercent_scores) > 3)
+which(abs(PPOpp_scores) > 3)
+which(abs(PPGoal_scores) > 3)
+which(abs(shootingPercent_scores) > 3)
+
+```
+
+
+
+##	Transform 
+
+In this step I look at the shots variable. When looking at a histogram of the variable, we can see that it is slightly skewed left. To normalize this I take the square root of the variable. Upon viewing the new histogram we can see this does the job well.
+
+```{r}
+hist(team_stats_full$shots)
+
+sqrt_shots <- team_stats_full$shots ^ .5
+
+hist(sqrt_shots)
+```
+
+
+
+
+<br>
+<br>
